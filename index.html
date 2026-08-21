@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบรายงานผลสอบ N-NET</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- html2pdf for PDF Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <!-- Global Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <p id="loading-text">กำลังโหลดข้อมูล...</p>
+    </div>
+
+    <div class="app-container">
+        <!-- Background decorative elements -->
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        
+        <header class="glass-panel main-header">
+            <h1 id="app-title"><i class="fa-solid fa-graduation-cap"></i> ระบบรายงานผลสอบ N-NET</h1>
+            <p id="app-subtitle">กำลังโหลดข้อมูล...</p>
+        </header>
+
+        <!-- Tabs Navigation -->
+        <div class="tabs-container no-print">
+            <button class="tab-btn active" id="tab-form"><i class="fa-solid fa-pen-to-square"></i> 1. กรอกข้อมูล</button>
+            <button class="tab-btn" id="tab-dashboard"><i class="fa-solid fa-chart-pie"></i> 2. แดชบอร์ดสรุปผล</button>
+        </div>
+
+        <main id="main-content">
+            <!-- Form Section -->
+            <section id="form-section" class="glass-panel">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-user-pen"></i> ข้อมูลผู้รายงาน</h2>
+                </div>
+                <form id="report-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="reporter-name">ชื่อ-นามสกุล <span class="required">*</span></label>
+                            <input type="text" id="reporter-name" required placeholder="เช่น นายสมชาย ใจดี">
+                        </div>
+                        <div class="form-group">
+                            <label for="reporter-position">ตำแหน่ง <span class="required">*</span></label>
+                            <input type="text" id="reporter-position" required placeholder="เช่น ครู กศน.ตำบล">
+                        </div>
+                        <div class="form-group">
+                            <label for="district-select">สกร.ระดับอำเภอ <span class="required">*</span></label>
+                            <div class="select-wrapper">
+                                <select id="district-select" required>
+                                    <option value="" disabled selected>-- เลือกอำเภอ --</option>
+                                    <!-- Populated via JS -->
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="exam-center">สนามสอบ</label>
+                            <input type="text" id="exam-center" readonly placeholder="จะแสดงอัตโนมัติเมื่อเลือกอำเภอ" class="readonly-input">
+                        </div>
+                    </div>
+
+                    <div class="section-divider"></div>
+
+                    <div class="section-header">
+                        <h2><i class="fa-solid fa-users"></i> ข้อมูลจำนวนนักศึกษา</h2>
+                    </div>
+                    
+                    <div class="levels-container">
+                        <!-- Primary -->
+                        <div class="level-card">
+                            <div class="card-indicator primary-bg"></div>
+                            <h3>ประถมศึกษา</h3>
+                            <div class="input-row">
+                                <div class="form-group">
+                                    <label>ผู้มีสิทธิ์สอบ (คน)</label>
+                                    <input type="number" id="primary-eligible" min="0" value="0" required class="number-input">
+                                </div>
+                                <div class="form-group">
+                                    <label>มาสอบ (คน)</label>
+                                    <input type="number" id="primary-attended" min="0" value="0" required class="number-input">
+                                </div>
+                                <div class="form-group result-group">
+                                    <label>ขาดสอบ (คน)</label>
+                                    <div class="calc-box" id="primary-absent">0</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lower Secondary -->
+                        <div class="level-card">
+                            <div class="card-indicator warning-bg"></div>
+                            <h3>มัธยมศึกษาตอนต้น</h3>
+                            <div class="input-row">
+                                <div class="form-group">
+                                    <label>ผู้มีสิทธิ์สอบ (คน)</label>
+                                    <input type="number" id="lower-sec-eligible" min="0" value="0" required class="number-input">
+                                </div>
+                                <div class="form-group">
+                                    <label>มาสอบ (คน)</label>
+                                    <input type="number" id="lower-sec-attended" min="0" value="0" required class="number-input">
+                                </div>
+                                <div class="form-group result-group">
+                                    <label>ขาดสอบ (คน)</label>
+                                    <div class="calc-box" id="lower-sec-absent">0</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Upper Secondary -->
+                        <div class="level-card">
+                            <div class="card-indicator success-bg"></div>
+                            <h3>มัธยมศึกษาตอนปลาย</h3>
+                            <div class="input-row">
+                                <div class="form-group">
+                                    <label>ผู้มีสิทธิ์สอบ (คน)</label>
+                                    <input type="number" id="upper-sec-eligible" min="0" value="0" required class="number-input">
+                                </div>
+                                <div class="form-group">
+                                    <label>มาสอบ (คน)</label>
+                                    <input type="number" id="upper-sec-attended" min="0" value="0" required class="number-input">
+                                </div>
+                                <div class="form-group result-group">
+                                    <label>ขาดสอบ (คน)</label>
+                                    <div class="calc-box" id="upper-sec-absent">0</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary pulse-hover">
+                            <i class="fa-solid fa-chart-pie"></i> สร้างรายงานและ Dashboard
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Dashboard Section (Hidden by default) -->
+            <section id="dashboard-section" class="glass-panel" style="display: none;">
+                <div class="dashboard-header no-print">
+                    <div class="export-actions" style="margin-left: auto;">
+                        <button id="btn-export-excel" class="btn-success"><i class="fa-solid fa-file-excel"></i> ดาวน์โหลด Excel</button>
+                        <button id="btn-export-pdf" class="btn-danger"><i class="fa-solid fa-file-pdf"></i> ดาวน์โหลด PDF</button>
+                    </div>
+                </div>
+
+                <div id="report-content" class="printable-area">
+                    <div class="report-title-area">
+                        <h2 id="report-doc-title">รายงานจำนวน นศ. ที่มีสิทธิ์สอบ (N-NET) รูปแบบ Paper Pencil</h2>
+                        <p id="report-doc-subtitle">ครั้งที่ 1 ปีการศึกษา 2569</p>
+                        <h3 id="report-doc-district" style="margin-top: 1rem; color: var(--primary-color); font-size: 1.5rem; font-weight: bold;">ประจำ สกร.ระดับอำเภอ...</h3>
+                    </div>
+                    
+                    <div class="report-info-grid">
+                        <div class="info-item">
+                            <span class="info-label">ผู้รายงาน:</span>
+                            <span class="info-value" id="dash-reporter"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">ตำแหน่ง:</span>
+                            <span class="info-value" id="dash-position"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">สกร.ระดับอำเภอ:</span>
+                            <span class="info-value" id="dash-district"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">สนามสอบ:</span>
+                            <span class="info-value" id="dash-center"></span>
+                        </div>
+                    </div>
+
+                    <div class="summary-cards">
+                        <div class="stat-card primary">
+                            <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+                            <div class="stat-details">
+                                <h3>ผู้มีสิทธิ์สอบรวม</h3>
+                                <div class="stat-number" id="stat-total-eligible">0</div>
+                                <div class="stat-label">คน</div>
+                            </div>
+                        </div>
+                        <div class="stat-card success">
+                            <div class="stat-icon"><i class="fa-solid fa-user-check"></i></div>
+                            <div class="stat-details">
+                                <h3>มาสอบรวม</h3>
+                                <div class="stat-number" id="stat-total-attended">0</div>
+                                <div class="stat-label" id="stat-attended-pct">(0.00%)</div>
+                            </div>
+                        </div>
+                        <div class="stat-card danger">
+                            <div class="stat-icon"><i class="fa-solid fa-user-xmark"></i></div>
+                            <div class="stat-details">
+                                <h3>ขาดสอบรวม</h3>
+                                <div class="stat-number" id="stat-total-absent">0</div>
+                                <div class="stat-label" id="stat-absent-pct">(0.00%)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="data-table-container">
+                        <table class="data-table" id="report-table" style="font-size: 0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th rowspan="2">ที่</th>
+                                    <th rowspan="2" style="min-width: 120px;">สกร.ระดับอำเภอ</th>
+                                    <th rowspan="2" style="min-width: 200px;">สนามสอบ</th>
+                                    <th colspan="3">ประถมศึกษา</th>
+                                    <th colspan="3">มัธยมศึกษาตอนต้น</th>
+                                    <th colspan="3">มัธยมศึกษาตอนปลาย</th>
+                                    <th rowspan="2">รวมทั้งสิ้น (คน)</th>
+                                </tr>
+                                <tr>
+                                    <th>สิทธิ์</th><th>มา</th><th>ขาด</th>
+                                    <th>สิทธิ์</th><th>มา</th><th>ขาด</th>
+                                    <th>สิทธิ์</th><th>มา</th><th>ขาด</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dashboard-table-body">
+                                <!-- Populated dynamically by JS -->
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-total">
+                                    <td colspan="3">รวมทั้งสิ้น</td>
+                                    <td id="tbl-tot-pri-eli">0</td>
+                                    <td id="tbl-tot-pri-att">0</td>
+                                    <td id="tbl-tot-pri-abs">0</td>
+                                    <td id="tbl-tot-low-eli">0</td>
+                                    <td id="tbl-tot-low-att">0</td>
+                                    <td id="tbl-tot-low-abs">0</td>
+                                    <td id="tbl-tot-upp-eli">0</td>
+                                    <td id="tbl-tot-upp-att">0</td>
+                                    <td id="tbl-tot-upp-abs">0</td>
+                                    <td id="tbl-tot-grand">0</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    
+                    <div class="signature-area">
+                        <div class="signature-box">
+                            <div class="sig-line"></div>
+                            <div class="sig-name" id="sig-reporter-name">(ชื่อ-นามสกุล)</div>
+                            <div class="sig-position" id="sig-reporter-position">ตำแหน่ง</div>
+                            <div class="sig-date">วันที่ ......../......../........</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <footer>
+            <p>&copy; 2026 ระบบรายงานผล N-NET ออนไลน์</p>
+        </footer>
+    </div>
+    
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
