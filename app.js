@@ -1,320 +1,283 @@
 document.addEventListener("DOMContentLoaded", () => {
-    // 1. Initialize from CONFIG
-    document.getElementById("app-subtitle").textContent = `${CONFIG.reportTitle} ครั้งที่ ${CONFIG.semester} ปีการศึกษา ${CONFIG.year}`;
-    document.getElementById("report-doc-title").textContent = CONFIG.reportTitle;
-    document.getElementById("report-doc-subtitle").textContent = `ครั้งที่ ${CONFIG.semester} ปีการศึกษา ${CONFIG.year}`;
+  const state = {
+    data: {},       // { fundId: [ {timestamp, date, category, amount, note}, ... ] }
+    currentFund: null,
+    txType: "deposit" // "deposit" | "withdraw"
+  };
 
-    // Populate District Select
-    const districtSelect = document.getElementById("district-select");
-    const examCenterInput = document.getElementById("exam-center");
+  const els = {
+    viewHome: document.getElementById("view-home"),
+    viewDetail: document.getElementById("view-detail"),
+    fundList: document.getElementById("fund-list"),
+    overviewTotal: document.getElementById("overview-total"),
+    btnRefresh: document.getElementById("btn-refresh"),
+    btnShareAll: document.getElementById("btn-share-all"),
+    btnBack: document.getElementById("btn-back"),
+    detailIcon: document.getElementById("detail-icon"),
+    detailName: document.getElementById("detail-name"),
+    detailBalance: document.getElementById("detail-balance"),
+    btnDeposit: document.getElementById("btn-deposit"),
+    btnWithdraw: document.getElementById("btn-withdraw"),
+    btnShareFund: document.getElementById("btn-share-fund"),
+    historyList: document.getElementById("history-list"),
+    modalOverlay: document.getElementById("modal-overlay"),
+    modalTitle: document.getElementById("modal-title"),
+    btnCloseModal: document.getElementById("btn-close-modal"),
+    btnCancel: document.getElementById("btn-cancel"),
+    txForm: document.getElementById("tx-form"),
+    txAmount: document.getElementById("tx-amount"),
+    txDate: document.getElementById("tx-date"),
+    txNote: document.getElementById("tx-note"),
+    toast: document.getElementById("toast"),
+    loadingOverlay: document.getElementById("loading-overlay")
+  };
 
-    for (const district in CONFIG.districtMapping) {
-        const option = document.createElement("option");
-        option.value = district;
-        option.textContent = district;
-        districtSelect.appendChild(option);
+  document.title = CONFIG.appName;
+  document.querySelector(".brand span").textContent = CONFIG.appName;
+
+  // ---------- Helpers ----------
+  function formatMoney(n) {
+    const num = Number(n) || 0;
+    return "฿" + num.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function formatDateThai(dateStr) {
+    if (!dateStr) return "-";
+    const d = new Date(dateStr);
+    if (isNaN(d)) return dateStr;
+    return d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function todayISO() {
+    const d = new Date();
+    const tz = d.getTimezoneOffset() * 60000;
+    return new Date(d - tz).toISOString().slice(0, 10);
+  }
+
+  function showLoading() { els.loadingOverlay.classList.add("show"); }
+  function hideLoading() { els.loadingOverlay.classList.remove("show"); }
+
+  let toastTimer;
+  function showToast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2600);
+  }
+
+  function fundConfig(id) {
+    return CONFIG.funds.find(f => f.id === id) || { id, name: id, icon: "fa-wallet" };
+  }
+
+  function fundBalance(id) {
+    const rows = state.data[id] || [];
+    return rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  }
+
+  function fundLatest(id) {
+    const rows = state.data[id] || [];
+    if (!rows.length) return null;
+    return [...rows].sort((a, b) => new Date(b.timestamp || b.date) - new Date(a.timestamp || a.date))[0];
+  }
+
+  // ---------- Data loading ----------
+  async function loadData() {
+    showLoading();
+    try {
+      const url = `${CONFIG.GAS_URL}?token=${encodeURIComponent(CONFIG.APP_SECRET)}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json.status === "success") {
+        state.data = json.data || {};
+      } else {
+        showToast(json.message || "โหลดข้อมูลไม่สำเร็จ");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("เชื่อมต่อฐานข้อมูลไม่ได้ ตรวจสอบ GAS_URL ใน config.js");
+    } finally {
+      hideLoading();
+      renderHome();
+      if (state.currentFund) renderDetail(state.currentFund);
+    }
+  }
+
+  // ---------- Rendering ----------
+  function renderHome() {
+    const total = CONFIG.funds.reduce((sum, f) => sum + fundBalance(f.id), 0);
+    els.overviewTotal.textContent = formatMoney(total);
+
+    els.fundList.innerHTML = "";
+    CONFIG.funds.forEach(f => {
+      const balance = fundBalance(f.id);
+      const latest = fundLatest(f.id);
+      const card = document.createElement("div");
+      card.className = "fund-card";
+      card.innerHTML = `
+        <div class="fund-icon"><i class="fa-solid ${f.icon}"></i></div>
+        <div class="fund-info">
+          <div class="fund-name">${f.name}</div>
+          <div class="fund-sub">${latest ? "ล่าสุด " + formatDateThai(latest.date) : "ยังไม่มีรายการ"}</div>
+        </div>
+        <div class="fund-balance ${balance < 0 ? "negative" : ""}">${formatMoney(balance)}</div>
+        <i class="fa-solid fa-chevron-right chevron"></i>
+      `;
+      card.addEventListener("click", () => openDetail(f.id));
+      els.fundList.appendChild(card);
+    });
+  }
+
+  function renderDetail(fundId) {
+    const f = fundConfig(fundId);
+    const balance = fundBalance(fundId);
+    const rows = [...(state.data[fundId] || [])].sort(
+      (a, b) => new Date(b.timestamp || b.date) - new Date(a.timestamp || a.date)
+    );
+
+    els.detailIcon.innerHTML = `<i class="fa-solid ${f.icon}"></i>`;
+    els.detailName.textContent = f.name;
+    els.detailBalance.textContent = formatMoney(balance);
+    els.detailBalance.style.color = balance < 0 ? "var(--red)" : "";
+
+    if (!rows.length) {
+      els.historyList.innerHTML = `<p class="empty-state">ยังไม่มีรายการ</p>`;
+      return;
     }
 
-    // 2. Handle District Change
-    districtSelect.addEventListener("change", (e) => {
-        const selectedDistrict = e.target.value;
-        if (selectedDistrict && CONFIG.districtMapping[selectedDistrict]) {
-            examCenterInput.value = CONFIG.districtMapping[selectedDistrict];
-        } else {
-            examCenterInput.value = "";
-        }
-    });
+    els.historyList.innerHTML = rows.map(r => {
+      const amt = Number(r.amount) || 0;
+      const isIn = amt >= 0;
+      return `
+        <div class="history-item">
+          <div class="hist-icon ${isIn ? "in" : "out"}">
+            <i class="fa-solid ${isIn ? "fa-arrow-down" : "fa-arrow-up"}"></i>
+          </div>
+          <div class="hist-body">
+            <div class="hist-note">${r.note ? escapeHtml(r.note) : (isIn ? "ฝากเงิน" : "ถอนเงิน")}</div>
+            <div class="hist-date">${formatDateThai(r.date)}</div>
+          </div>
+          <div class="hist-amount ${isIn ? "in" : "out"}">${isIn ? "+" : "-"}${formatMoney(Math.abs(amt)).slice(1)}</div>
+        </div>
+      `;
+    }).join("");
+  }
 
-    // 3. Auto Calculate Absences
-    const levels = ['primary', 'lower-sec', 'upper-sec'];
-    
-    levels.forEach(level => {
-        const eligibleInput = document.getElementById(`${level}-eligible`);
-        const attendedInput = document.getElementById(`${level}-attended`);
-        const absentBox = document.getElementById(`${level}-absent`);
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
 
-        const calcAbsent = () => {
-            const eligible = parseInt(eligibleInput.value) || 0;
-            let attended = parseInt(attendedInput.value) || 0;
-            
-            // Validation
-            if (attended > eligible) {
-                attendedInput.value = eligible;
-                attended = eligible;
-            }
+  // ---------- Navigation ----------
+  function openDetail(fundId) {
+    state.currentFund = fundId;
+    renderDetail(fundId);
+    els.viewHome.classList.remove("active");
+    els.viewDetail.classList.add("active");
+    window.scrollTo(0, 0);
+  }
 
-            const absent = eligible - attended;
-            absentBox.textContent = absent;
-        };
+  function backToHome() {
+    state.currentFund = null;
+    els.viewDetail.classList.remove("active");
+    els.viewHome.classList.add("active");
+    renderHome();
+    window.scrollTo(0, 0);
+  }
 
-        eligibleInput.addEventListener("input", calcAbsent);
-        attendedInput.addEventListener("input", calcAbsent);
-    });
+  els.btnBack.addEventListener("click", backToHome);
+  els.btnRefresh.addEventListener("click", loadData);
 
-    // 4. Tab Navigation and Dashboard Update
-    const form = document.getElementById("report-form");
-    const formSection = document.getElementById("form-section");
-    const dashboardSection = document.getElementById("dashboard-section");
-    
-    const tabForm = document.getElementById("tab-form");
-    const tabDashboard = document.getElementById("tab-dashboard");
+  // ---------- Modal ----------
+  function openModal(type) {
+    state.txType = type;
+    els.modalTitle.textContent = type === "deposit" ? "ฝากเงิน" : "ถอนเงิน";
+    els.txForm.reset();
+    els.txDate.value = todayISO();
+    els.modalOverlay.classList.add("open");
+    setTimeout(() => els.txAmount.focus(), 150);
+  }
 
-    function showLoading() {
-        document.getElementById("loading-overlay").style.display = "flex";
+  function closeModal() {
+    els.modalOverlay.classList.remove("open");
+  }
+
+  els.btnDeposit.addEventListener("click", () => openModal("deposit"));
+  els.btnWithdraw.addEventListener("click", () => openModal("withdraw"));
+  els.btnCloseModal.addEventListener("click", closeModal);
+  els.btnCancel.addEventListener("click", closeModal);
+  els.modalOverlay.addEventListener("click", (e) => {
+    if (e.target === els.modalOverlay) closeModal();
+  });
+
+  els.txForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const rawAmount = Math.abs(parseFloat(els.txAmount.value) || 0);
+    if (rawAmount <= 0) {
+      showToast("กรุณากรอกจำนวนเงินให้ถูกต้อง");
+      return;
     }
+    const amount = state.txType === "deposit" ? rawAmount : -rawAmount;
 
-    function hideLoading() {
-        document.getElementById("loading-overlay").style.display = "none";
+    const payload = {
+      token: CONFIG.APP_SECRET,
+      fund: state.currentFund,
+      date: els.txDate.value || todayISO(),
+      amount: amount,
+      note: els.txNote.value.trim()
+    };
+
+    closeModal();
+    showLoading();
+    try {
+      const res = await fetch(CONFIG.GAS_URL, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json().catch(() => ({ status: "success" }));
+      if (json.status === "error") {
+        showToast(json.message || "บันทึกไม่สำเร็จ");
+      } else {
+        showToast(state.txType === "deposit" ? "ฝากเงินสำเร็จ" : "ถอนเงินสำเร็จ");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("บันทึกไม่สำเร็จ ตรวจสอบการเชื่อมต่อ");
+    } finally {
+      await loadData();
     }
+  });
 
-    async function updateDashboardData() {
-        const localData = {
-            reporter: document.getElementById("reporter-name").value || "-",
-            position: document.getElementById("reporter-position").value || "-",
-            district: document.getElementById("district-select").value || "-",
-            center: document.getElementById("exam-center").value || "-"
-        };
+  // ---------- LINE Share ----------
+  function shareToLine(text) {
+    const url = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  }
 
-        showLoading();
-        try {
-            const response = await fetch(CONFIG.GAS_URL);
-            const resData = await response.json();
-            
-            let gasData = [];
-            if (resData.status === "success") {
-                gasData = resData.data;
-            }
-            populateDashboard(localData, gasData);
-        } catch (error) {
-            console.error("Error fetching data:", error);
-            // alert("ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้ จะแสดงเพียงข้อมูลที่คุณเพิ่งกรอก");
-            // If failed, just show empty
-            populateDashboard(localData, []);
-        } finally {
-            hideLoading();
-        }
+  els.btnShareAll.addEventListener("click", () => {
+    const total = CONFIG.funds.reduce((sum, f) => sum + fundBalance(f.id), 0);
+    let text = `💰 ${CONFIG.appName}\nสรุปยอดคงเหลือ\n\n`;
+    CONFIG.funds.forEach(f => {
+      text += `• ${f.name}: ${formatMoney(fundBalance(f.id))}\n`;
+    });
+    text += `\nรวมทั้งหมด: ${formatMoney(total)}`;
+    shareToLine(text);
+  });
+
+  els.btnShareFund.addEventListener("click", () => {
+    const f = fundConfig(state.currentFund);
+    const balance = fundBalance(state.currentFund);
+    const latest = fundLatest(state.currentFund);
+    let text = `💰 ${f.name}\nยอดคงเหลือ: ${formatMoney(balance)}`;
+    if (latest) {
+      const amt = Number(latest.amount) || 0;
+      text += `\nรายการล่าสุด: ${amt >= 0 ? "ฝาก" : "ถอน"} ${formatMoney(Math.abs(amt))} (${formatDateThai(latest.date)})`;
+      if (latest.note) text += `\nหมายเหตุ: ${latest.note}`;
     }
+    text += `\n\n#${CONFIG.appName}`;
+    shareToLine(text);
+  });
 
-    tabForm.addEventListener("click", () => {
-        tabForm.classList.add("active");
-        tabDashboard.classList.remove("active");
-        formSection.style.display = "block";
-        dashboardSection.style.display = "none";
-    });
-
-    tabDashboard.addEventListener("click", () => {
-        tabDashboard.classList.add("active");
-        tabForm.classList.remove("active");
-        formSection.style.display = "none";
-        dashboardSection.style.display = "block";
-        updateDashboardData();
-    });
-
-    form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        
-        const data = {
-            reporter: document.getElementById("reporter-name").value,
-            position: document.getElementById("reporter-position").value,
-            district: document.getElementById("district-select").value,
-            center: document.getElementById("exam-center").value,
-            levels: {
-                primary: {
-                    eligible: parseInt(document.getElementById("primary-eligible").value) || 0,
-                    attended: parseInt(document.getElementById("primary-attended").value) || 0,
-                },
-                lowerSec: {
-                    eligible: parseInt(document.getElementById("lower-sec-eligible").value) || 0,
-                    attended: parseInt(document.getElementById("lower-sec-attended").value) || 0,
-                },
-                upperSec: {
-                    eligible: parseInt(document.getElementById("upper-sec-eligible").value) || 0,
-                    attended: parseInt(document.getElementById("upper-sec-attended").value) || 0,
-                }
-            }
-        };
-
-        showLoading();
-        try {
-            await fetch(CONFIG.GAS_URL, {
-                method: "POST",
-                body: JSON.stringify(data)
-            });
-            tabDashboard.click();
-            window.scrollTo(0, 0);
-        } catch (error) {
-            console.error("Error posting data:", error);
-            alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล (หรืออาจติดเรื่อง CORS)");
-            tabDashboard.click(); // Proceed anyway for offline fallback
-        } finally {
-            hideLoading();
-        }
-    });
-
-    // 6. Populate Dashboard
-    function populateDashboard(localData, gasData) {
-        // Info
-        document.getElementById("dash-reporter").textContent = localData.reporter;
-        document.getElementById("dash-position").textContent = localData.position;
-        document.getElementById("dash-district").textContent = localData.district;
-        document.getElementById("dash-center").textContent = localData.center;
-
-        // Update Title to show District prominently
-        document.getElementById("report-doc-district").textContent = `ประจำ สกร.ระดับอำเภอ${localData.district}`;
-
-        document.getElementById("sig-reporter-name").textContent = `(${localData.reporter})`;
-        document.getElementById("sig-reporter-position").textContent = localData.position;
-
-        const tbody = document.getElementById("dashboard-table-body");
-        tbody.innerHTML = "";
-
-        let grandTotPriEli = 0, grandTotPriAtt = 0, grandTotPriAbs = 0;
-        let grandTotLowEli = 0, grandTotLowAtt = 0, grandTotLowAbs = 0;
-        let grandTotUppEli = 0, grandTotUppAtt = 0, grandTotUppAbs = 0;
-        let grandTotAll = 0;
-
-        let index = 1;
-        for (const dist in CONFIG.districtMapping) {
-            const centerName = CONFIG.districtMapping[dist];
-            let pEli = 0, pAtt = 0, pAbs = 0;
-            let lEli = 0, lAtt = 0, lAbs = 0;
-            let uEli = 0, uAtt = 0, uAbs = 0;
-
-            const distData = gasData.find(row => row.district === dist);
-
-            if (distData) {
-                pEli = distData.levels.primary.eligible || 0;
-                pAtt = distData.levels.primary.attended || 0;
-                pAbs = pEli - pAtt;
-
-                lEli = distData.levels.lowerSec.eligible || 0;
-                lAtt = distData.levels.lowerSec.attended || 0;
-                lAbs = lEli - lAtt;
-
-                uEli = distData.levels.upperSec.eligible || 0;
-                uAtt = distData.levels.upperSec.attended || 0;
-                uAbs = uEli - uAtt;
-            }
-
-            const totalForRow = pEli + lEli + uEli;
-
-            const rowHtml = `
-                <tr>
-                    <td>${index++}</td>
-                    <td style="text-align: left;">${dist}</td>
-                    <td style="text-align: left;">${centerName}</td>
-                    <td>${pEli || '-'}</td><td>${pAtt || '-'}</td><td class="text-danger">${pAbs || '-'}</td>
-                    <td>${lEli || '-'}</td><td>${lAtt || '-'}</td><td class="text-danger">${lAbs || '-'}</td>
-                    <td>${uEli || '-'}</td><td>${uAtt || '-'}</td><td class="text-danger">${uAbs || '-'}</td>
-                    <td class="fw-bold">${totalForRow || '-'}</td>
-                </tr>
-            `;
-            tbody.innerHTML += rowHtml;
-
-            grandTotPriEli += pEli; grandTotPriAtt += pAtt; grandTotPriAbs += pAbs;
-            grandTotLowEli += lEli; grandTotLowAtt += lAtt; grandTotLowAbs += lAbs;
-            grandTotUppEli += uEli; grandTotUppAtt += uAtt; grandTotUppAbs += uAbs;
-            grandTotAll += totalForRow;
-        }
-
-        // Grand Totals Table
-        document.getElementById("tbl-tot-pri-eli").textContent = grandTotPriEli || '-';
-        document.getElementById("tbl-tot-pri-att").textContent = grandTotPriAtt || '-';
-        document.getElementById("tbl-tot-pri-abs").textContent = grandTotPriAbs || '-';
-
-        document.getElementById("tbl-tot-low-eli").textContent = grandTotLowEli || '-';
-        document.getElementById("tbl-tot-low-att").textContent = grandTotLowAtt || '-';
-        document.getElementById("tbl-tot-low-abs").textContent = grandTotLowAbs || '-';
-
-        document.getElementById("tbl-tot-upp-eli").textContent = grandTotUppEli || '-';
-        document.getElementById("tbl-tot-upp-att").textContent = grandTotUppAtt || '-';
-        document.getElementById("tbl-tot-upp-abs").textContent = grandTotUppAbs || '-';
-
-        document.getElementById("tbl-tot-grand").textContent = grandTotAll || '-';
-
-        // Cards (Sum of all levels)
-        const totEli = grandTotPriEli + grandTotLowEli + grandTotUppEli;
-        const totAtt = grandTotPriAtt + grandTotLowAtt + grandTotUppAtt;
-        const totAbs = grandTotPriAbs + grandTotLowAbs + grandTotUppAbs;
-        
-        const totAttPct = totEli > 0 ? ((totAtt / totEli) * 100).toFixed(2) : "0.00";
-        const totAbsPct = totEli > 0 ? ((totAbs / totEli) * 100).toFixed(2) : "0.00";
-
-        document.getElementById("stat-total-eligible").textContent = totEli;
-        document.getElementById("stat-total-attended").textContent = totAtt;
-        document.getElementById("stat-attended-pct").textContent = `(${totAttPct}%)`;
-        document.getElementById("stat-total-absent").textContent = totAbs;
-        document.getElementById("stat-absent-pct").textContent = `(${totAbsPct}%)`;
-    }
-
-    // 7. Export PDF
-    document.getElementById("btn-export-pdf").addEventListener("click", () => {
-        const element = document.getElementById("report-content");
-        const district = document.getElementById("dash-district").textContent;
-        const opt = {
-            margin:       10,
-            filename:     `รายงานN-NET_สกร_${district}.pdf`,
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        // Add loading state
-        const btn = document.getElementById("btn-export-pdf");
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังสร้าง...';
-        btn.disabled = true;
-
-        html2pdf().set(opt).from(element).save().then(() => {
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-        });
-    });
-
-    // 8. Export Excel
-    document.getElementById("btn-export-excel").addEventListener("click", () => {
-        // Collect data into an array of arrays
-        const district = document.getElementById("dash-district").textContent;
-        const center = document.getElementById("dash-center").textContent;
-        
-        const wb = XLSX.utils.book_new();
-        
-        // Title Rows
-        const ws_data = [
-            [`${CONFIG.reportTitle} ครั้งที่ ${CONFIG.semester} ปีการศึกษา ${CONFIG.year}`],
-            [`ในสังกัดสำนักงานส่งเสริมการเรียนรู้ประจำจังหวัดมหาสารคาม`],
-            [],
-            [`ผู้รายงาน:`, document.getElementById("dash-reporter").textContent, `ตำแหน่ง:`, document.getElementById("dash-position").textContent],
-            [`สกร.ระดับอำเภอ:`, district, `สนามสอบ:`, center],
-            [],
-            ["ที่", "สกร.ระดับอำเภอ", "สนามสอบ", "ประถม (สิทธิ์)", "ประถม (มา)", "ประถม (ขาด)", "ม.ต้น (สิทธิ์)", "ม.ต้น (มา)", "ม.ต้น (ขาด)", "ม.ปลาย (สิทธิ์)", "ม.ปลาย (มา)", "ม.ปลาย (ขาด)", "รวมทั้งสิ้น"]
-        ];
-
-        const tbody = document.getElementById("dashboard-table-body");
-        const rows = tbody.querySelectorAll("tr");
-        rows.forEach(tr => {
-            const cells = Array.from(tr.querySelectorAll("td")).map(td => td.textContent === '-' ? '' : td.textContent);
-            ws_data.push(cells);
-        });
-
-        // Add total row
-        ws_data.push([
-            "", "รวมทั้งสิ้น", "",
-            document.getElementById("tbl-tot-pri-eli").textContent,
-            document.getElementById("tbl-tot-pri-att").textContent,
-            document.getElementById("tbl-tot-pri-abs").textContent,
-            document.getElementById("tbl-tot-low-eli").textContent,
-            document.getElementById("tbl-tot-low-att").textContent,
-            document.getElementById("tbl-tot-low-abs").textContent,
-            document.getElementById("tbl-tot-upp-eli").textContent,
-            document.getElementById("tbl-tot-upp-att").textContent,
-            document.getElementById("tbl-tot-upp-abs").textContent,
-            document.getElementById("tbl-tot-grand").textContent
-        ].map(val => val === '-' ? '' : val));
-
-        const ws = XLSX.utils.aoa_to_sheet(ws_data);
-        XLSX.utils.book_append_sheet(wb, ws, "รายงาน N-NET");
-
-        XLSX.writeFile(wb, `รายงานN-NET_สกร_${district}.xlsx`);
-    });
+  // ---------- Init ----------
+  loadData();
 });
